@@ -11,6 +11,10 @@ from telegram.ext import (
     filters,
 )
 
+# ==============================
+# MASTER YOUSEF RAILWAY ULTIMATE
+# ==============================
+
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -20,7 +24,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 ADMIN_ID = os.getenv("ADMIN_ID", "").strip()
 RAILWAY_API_TOKEN = os.getenv("RAILWAY_API_TOKEN", "").strip()
 
-RAILWAY_API = "https://backboard.railway.com/graphql/v2"
+API_URL = "https://backboard.railway.com/graphql/v2"
 
 MENU = ReplyKeyboardMarkup(
     [
@@ -32,10 +36,14 @@ MENU = ReplyKeyboardMarkup(
 )
 
 
+# ==============================
+# RAILWAY API
+# ==============================
+
 async def railway_request(query, variables=None):
     if not RAILWAY_API_TOKEN:
         raise RuntimeError(
-            "متغیر RAILWAY_API_TOKEN در Railway تنظیم نشده است."
+            "متغیر RAILWAY_API_TOKEN تنظیم نشده است."
         )
 
     headers = {
@@ -45,7 +53,7 @@ async def railway_request(query, variables=None):
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            RAILWAY_API,
+            API_URL,
             headers=headers,
             json={
                 "query": query,
@@ -57,13 +65,14 @@ async def railway_request(query, variables=None):
     result = response.json()
 
     if result.get("errors"):
-        messages = [
-            item.get("message", "خطای نامشخص")
-            for item in result["errors"]
-        ]
-        raise RuntimeError("\n".join(messages))
+        errors = result["errors"]
+        message = "\n".join(
+            error.get("message", "خطای نامشخص")
+            for error in errors
+        )
+        raise RuntimeError(message)
 
-    return result.get("data", {})
+    return result.get("data") or {}
 
 
 async def get_account():
@@ -76,6 +85,7 @@ async def get_account():
         }
     }
     """
+
     data = await railway_request(query)
     return data.get("me") or {}
 
@@ -91,9 +101,11 @@ async def get_workspaces():
         }
     }
     """
+
     data = await railway_request(query)
-    me = data.get("me") or {}
-    return me.get("workspaces") or []
+    account = data.get("me") or {}
+
+    return account.get("workspaces") or []
 
 
 async def get_projects():
@@ -110,8 +122,10 @@ async def get_projects():
         }
     }
     """
+
     data = await railway_request(query)
     projects = data.get("projects") or {}
+
     return [
         edge["node"]
         for edge in projects.get("edges", [])
@@ -132,45 +146,69 @@ async def create_project(name, workspace_id):
     variables = {
         "input": {
             "name": name,
-            "workspaceId": workspace_id,
+            "teamId": workspace_id,
         }
     }
 
     data = await railway_request(query, variables)
-    return data.get("projectCreate") or {}
+
+    project = data.get("projectCreate")
+
+    if not project or not project.get("id"):
+        raise RuntimeError(
+            "Railway پروژه را ایجاد کرد، "
+            "اما شناسه پروژه در پاسخ وجود ندارد."
+        )
+
+    return project
 
 
-def is_admin(update):
-    if not ADMIN_ID:
-        return False
+# ==============================
+# PERMISSIONS
+# ==============================
 
+def is_admin(update: Update):
     user = update.effective_user
-    return bool(user and str(user.id) == ADMIN_ID)
+
+    return bool(
+        user
+        and ADMIN_ID
+        and str(user.id) == ADMIN_ID
+    )
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ==============================
+# START
+# ==============================
+
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     user = update.effective_user
 
-    text = (
+    await update.message.reply_text(
         "🐺 MASTER YOUSEF RAILWAY ULTIMATE\n"
         "━━━━━━━━━━━━━━━━━━\n"
         f"👤 کاربر: {user.first_name}\n"
         "💎 نسخه: ULTIMATE\n"
-        "🟢 ربات آنلاین است.\n\n"
-        "یکی از گزینه‌های زیر را انتخاب کن."
+        "🟢 ربات آماده است.\n\n"
+        "یکی از گزینه‌های منو را انتخاب کن.",
+        reply_markup=MENU,
     )
 
-    await update.message.reply_text(text, reply_markup=MENU)
 
+# ==============================
+# MESSAGE HANDLER
+# ==============================
 
 async def handle_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
-    if not update.message or not update.effective_user:
+    if not update.message:
         return
 
-    user_id = str(update.effective_user.id)
     text = update.message.text.strip()
 
     if not is_admin(update):
@@ -180,6 +218,7 @@ async def handle_message(
         )
         return
 
+    # اتصال Railway
     if text == "🔑 اتصال Railway":
         try:
             account = await get_account()
@@ -187,120 +226,151 @@ async def handle_message(
             await update.message.reply_text(
                 "🟢 اتصال Railway موفق بود!\n"
                 "━━━━━━━━━━━━━━━━━━\n"
-                f"👤 نام حساب: {account.get('name') or 'بدون نام'}\n"
-                f"📧 ایمیل: {account.get('email') or 'در دسترس نیست'}\n\n"
-                "🔐 توکن فقط در متغیر محرمانه سرور نگهداری می‌شود.",
+                f"👤 نام حساب: "
+                f"{account.get('name') or 'بدون نام'}\n"
+                f"📧 ایمیل: "
+                f"{account.get('email') or 'در دسترس نیست'}\n"
+                "🔐 توکن در متغیر محرمانه سرور نگهداری می‌شود.",
                 reply_markup=MENU,
             )
-        except Exception as exc:
-            logging.exception("Railway account error")
+
+        except Exception as error:
+            logging.exception("Railway connection failed")
+
             await update.message.reply_text(
-                f"🔴 اتصال ناموفق بود:\n{str(exc)[:700]}",
+                "🔴 اتصال ناموفق بود.\n\n"
+                f"علت: {str(error)[:700]}",
                 reply_markup=MENU,
             )
+
         return
 
+    # نمایش پروژه‌ها
     if text == "📦 پروژه‌های من":
         try:
             projects = await get_projects()
 
             if not projects:
                 await update.message.reply_text(
-                    "📦 هنوز پروژه‌ای در این حساب پیدا نشد.",
+                    "📦 هنوز پروژه‌ای پیدا نشد.\n"
+                    "ممکن است توکن به حساب دیگری تعلق داشته باشد.",
                     reply_markup=MENU,
                 )
                 return
 
-            lines = ["📦 پروژه‌های Railway", "━━━━━━━━━━━━━━━━━━"]
+            lines = [
+                "📦 پروژه‌های Railway",
+                "━━━━━━━━━━━━━━━━━━",
+            ]
 
-            for project in projects[:30]:
+            for project in projects[:25]:
                 lines.append(
                     f"🚀 {project.get('name', 'بدون نام')}\n"
-                    f"🆔 {project.get('id', '')}"
+                    f"🆔 {project.get('id', 'نامشخص')}"
                 )
 
             await update.message.reply_text(
                 "\n\n".join(lines),
                 reply_markup=MENU,
             )
-        except Exception as exc:
-            logging.exception("Project listing error")
+
+        except Exception as error:
+            logging.exception("Get projects failed")
+
             await update.message.reply_text(
-                f"🔴 دریافت پروژه‌ها ناموفق بود:\n{str(exc)[:700]}",
+                "🔴 دریافت پروژه‌ها ناموفق بود.\n\n"
+                f"علت: {str(error)[:700]}",
                 reply_markup=MENU,
             )
+
         return
 
+    # شروع ساخت پروژه
     if text == "🚀 ساخت پروژه":
         context.user_data["waiting_project_name"] = True
 
         await update.message.reply_text(
             "🚀 ساخت پروژه جدید\n"
             "━━━━━━━━━━━━━━━━━━\n\n"
-            "اسم پروژه را به انگلیسی بفرست.\n"
-            "مثال: MASTER-YOUSEF-APP"
+            "اسم پروژه را به انگلیسی بفرست.\n\n"
+            "مثال:\n"
+            "MASTER-YOUSEF-TEST"
         )
+
         return
 
+    # دریافت نام و ساخت پروژه
     if context.user_data.get("waiting_project_name"):
-        name = text
+        name = text.strip()
 
         if not name or len(name) > 100:
             await update.message.reply_text(
-                "⚠️ اسم پروژه باید بین ۱ تا ۱۰۰ کاراکتر باشد."
+                "⚠️ نام پروژه باید بین ۱ تا ۱۰۰ کاراکتر باشد."
             )
             return
 
         context.user_data["waiting_project_name"] = False
 
         try:
+            await update.message.reply_text(
+                "⏳ در حال بررسی فضای کاری Railway..."
+            )
+
             workspaces = await get_workspaces()
 
             if not workspaces:
                 await update.message.reply_text(
-                    "🔴 هیچ فضای کاری برای این توکن پیدا نشد.\n"
-                    "توکن Railway و دسترسی حساب را بررسی کن.",
+                    "🔴 هیچ فضای کاری قابل دسترسی پیدا نشد.\n\n"
+                    "توکن و دسترسی حساب Railway را بررسی کن.",
                     reply_markup=MENU,
                 )
                 return
 
-            # استفاده از اولین فضای کاری قابل دسترس
             workspace = workspaces[0]
             workspace_id = workspace.get("id")
 
             if not workspace_id:
                 await update.message.reply_text(
-                    "🔴 شناسه فضای کاری از Railway دریافت نشد.",
+                    "🔴 شناسه فضای کاری دریافت نشد.",
                     reply_markup=MENU,
                 )
                 return
 
-            project = await create_project(name, workspace_id)
-
-            if project.get("id"):
-                await update.message.reply_text(
-                    "✅ پروژه با موفقیت ساخته شد!\n"
-                    "━━━━━━━━━━━━━━━━━━\n"
-                    f"📦 نام: {project.get('name', name)}\n"
-                    f"🆔 شناسه: {project['id']}\n"
-                    f"🏢 فضای کاری: {workspace.get('name', 'بدون نام')}",
-                    reply_markup=MENU,
-                )
-            else:
-                await update.message.reply_text(
-                    "🔴 پاسخ ساخت پروژه کامل نبود.\n"
-                    "لطفاً Logs سرویس Railway را بررسی کن.",
-                    reply_markup=MENU,
-                )
-
-        except Exception as exc:
-            logging.exception("Project creation error")
             await update.message.reply_text(
-                f"🔴 ساخت پروژه ناموفق بود:\n{str(exc)[:700]}",
+                "🏢 فضای کاری پیدا شد:\n"
+                f"{workspace.get('name', 'بدون نام')}\n\n"
+                "⏳ در حال ارسال درخواست ساخت پروژه..."
+            )
+
+            project = await create_project(
+                name=name,
+                workspace_id=workspace_id,
+            )
+
+            await update.message.reply_text(
+                "✅ پروژه با موفقیت ساخته شد!\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"📦 نام: {project.get('name', name)}\n"
+                f"🆔 شناسه: {project.get('id')}\n"
+                f"🏢 فضای کاری: "
+                f"{workspace.get('name', 'بدون نام')}",
                 reply_markup=MENU,
             )
+
+        except Exception as error:
+            logging.exception("Project creation failed")
+
+            await update.message.reply_text(
+                "🔴 ساخت پروژه ناموفق بود.\n\n"
+                f"❌ علت: {str(error)[:700]}\n\n"
+                "اگر خطای workspaceId تکرار شد، "
+                "باید ساختار درخواست و پاسخ API را بررسی کنیم.",
+                reply_markup=MENU,
+            )
+
         return
 
+    # داشبورد
     if text == "📊 داشبورد":
         try:
             account = await get_account()
@@ -311,16 +381,20 @@ async def handle_message(
                 "━━━━━━━━━━━━━━━━━━\n"
                 f"👤 حساب: {account.get('name') or 'بدون نام'}\n"
                 f"📦 تعداد پروژه‌ها: {len(projects)}\n"
-                "🟢 وضعیت اتصال: فعال",
+                "🟢 اتصال API: فعال",
                 reply_markup=MENU,
             )
-        except Exception as exc:
+
+        except Exception as error:
             await update.message.reply_text(
-                f"🔴 دریافت داشبورد ناموفق بود:\n{str(exc)[:500]}",
+                "🔴 دریافت داشبورد ناموفق بود.\n\n"
+                f"علت: {str(error)[:500]}",
                 reply_markup=MENU,
             )
+
         return
 
+    # پشتیبانی
     if text == "🛠 پشتیبانی":
         await update.message.reply_text(
             "🛠 پشتیبانی: @SultanOfWolf",
@@ -328,6 +402,7 @@ async def handle_message(
         )
         return
 
+    # کانال
     if text == "📢 کانال":
         await update.message.reply_text(
             "📢 کانال: @vpnstan1",
@@ -341,30 +416,41 @@ async def handle_message(
     )
 
 
+# ==============================
+# MAIN
+# ==============================
+
 def main():
     if not BOT_TOKEN:
         raise RuntimeError(
-            "متغیر BOT_TOKEN در Railway تعریف نشده است."
+            "متغیر BOT_TOKEN در Railway تنظیم نشده است."
         )
 
     if not ADMIN_ID.isdigit():
         raise RuntimeError(
-            "متغیر ADMIN_ID باید شناسه عددی تلگرام مدیر باشد."
+            "ADMIN_ID باید شناسه عددی تلگرام مدیر باشد."
         )
 
     if not RAILWAY_API_TOKEN:
         raise RuntimeError(
-            "متغیر RAILWAY_API_TOKEN در Railway تعریف نشده است."
+            "متغیر RAILWAY_API_TOKEN در Railway تنظیم نشده است."
         )
 
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_message,
+        )
     )
 
-    logging.info("MASTER YOUSEF RAILWAY ULTIMATE is starting")
+    logging.info(
+        "MASTER YOUSEF RAILWAY ULTIMATE is starting"
+    )
+
     app.run_polling(drop_pending_updates=True)
 
 
